@@ -1,10 +1,10 @@
 import SwiftUI
 import UIKit
+import Foundation
 
 class GemmaInferenceManager: ObservableObject {
     @Published var chatHistory: [ChatMessage] = []
     @Published var isResponding: Bool = false
-    private var personalizedMemoryContext: String = ""
     
     init() {}
     
@@ -14,17 +14,16 @@ class GemmaInferenceManager: ObservableObject {
         isResponding = true
         
         if let originalImage = image {
-            print("🚀 开始模拟端侧图片处理流程...")
             if let resizedImage = resizeImageForModel(originalImage, to: CGSize(width: 224, height: 224)) {
-                print("✅ 图片已本地调整为 224x224 像素")
+                print("Image resized locally")
             }
         }
         
         DispatchQueue.global().async {
             Thread.sleep(forTimeInterval: 2.0)
-            var responseText = "这是基于端侧大模型和你的记忆生成的回复。(云端编译测试版)"
+            var responseText = "这是基于端侧大模型生成的回复。"
             if image != nil {
-                responseText = "Gemma 模拟多模态回复: 我看到你上传了图片 (已在手机上本地处理为 224x224 像素)。我已启用模拟的视觉编码器，并综合你的文本问题 “\(text)” 进行回复。我还需要真正的缝合版大模型文件才能准确识别图里的内容。不过，整个处理流程我们已经跑通了！"
+                responseText = "Gemma 模拟多模态回复: 看到图片了，问题是 \"\(text)\"。目前已跑通端侧预处理流程，等待真实缝合版模型替换。"
             }
             DispatchQueue.main.async {
                 self.chatHistory.append(ChatMessage(role: .model, content: responseText))
@@ -35,15 +34,17 @@ class GemmaInferenceManager: ObservableObject {
     
     func clearMemory() {
         chatHistory.removeAll()
-        chatHistory.append(ChatMessage(role: .system, content: "🧹 个性化记忆已成功清除。"))
     }
     
+    // 换用了苹果最新推荐的安全渲染引擎
     private func resizeImageForModel(_ image: UIImage, to size: CGSize) -> UIImage? {
-        UIGraphicsBeginImageContextWithOptions(size, false, 1.0)
-        image.draw(in: CGRect(origin: .zero, size: size))
-        let resizedImage = UIGraphicsGetImageContextFromImage()
-        UIGraphicsEndImageContext()
-        if let jpegData = resizedImage?.jpegData(compressionQuality: 0.8) {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let resizedImage = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        if let jpegData = resizedImage.jpegData(compressionQuality: 0.8) {
              return UIImage(data: jpegData)
         }
         return resizedImage
@@ -72,26 +73,18 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
+                // 去掉了容易报错的 ScrollViewReader 和 onChange
                 ScrollView {
-                    ScrollViewReader { proxy in
-                        VStack(spacing: 12) {
-                            ForEach(inferenceManager.chatHistory) { message in
-                                MessageBubble(message: message)
-                            }
-                        }
-                        .padding()
-                        .onChange(of: inferenceManager.chatHistory.count) { _ in
-                            withAnimation {
-                                if let lastId = inferenceManager.chatHistory.last?.id {
-                                    proxy.scrollTo(lastId, anchor: .bottom)
-                                }
-                            }
+                    VStack(spacing: 12) {
+                        ForEach(inferenceManager.chatHistory) { message in
+                            MessageBubble(message: message)
                         }
                     }
+                    .padding()
                 }
                 
                 if let imagePreview = selectedUIImage {
-                    HStack(alignment: .top) {
+                    HStack {
                         Image(uiImage: imagePreview)
                             .resizable()
                             .scaledToFill()
@@ -107,8 +100,7 @@ struct ContentView: View {
                         Spacer()
                     }
                     .padding()
-                    .background(Color.gray.opacity(0.15))
-                    .transition(.move(edge: .bottom))
+                    .background(Color.gray.opacity(0.1))
                 }
                 
                 HStack {
@@ -135,22 +127,20 @@ struct ContentView: View {
                         selectedUIImage = nil
                     }) {
                         Image(systemName: "paperplane.fill")
-                            .font(.title3)
-                            .foregroundColor(.white)
                             .padding(10)
                             .background((inputText.isEmpty && selectedUIImage == nil) ? Color.gray : Color.blue)
+                            .foregroundColor(.white)
                             .clipShape(Circle())
                     }
                     .disabled(inferenceManager.isResponding || (inputText.isEmpty && selectedUIImage == nil))
                 }
                 .padding()
             }
-            .navigationTitle("Gemma Edge 1.0")
+            .navigationTitle("Gemma Edge")
             .navigationBarItems(trailing: Button(action: {
                 inferenceManager.clearMemory()
             }) {
-                Image(systemName: "trash")
-                    .foregroundColor(.red)
+                Image(systemName: "trash").foregroundColor(.red)
             })
         }
     }
@@ -168,38 +158,26 @@ struct MessageBubble: View {
                         .scaledToFit()
                         .frame(maxWidth: 200, maxHeight: 200)
                         .cornerRadius(10)
-                        .padding(5)
-                        .background(bubbleColor(for: message.role))
-                        .cornerRadius(10)
                 }
                 if !message.content.isEmpty {
                     Text(message.content)
                         .padding(10)
-                        .background(bubbleColor(for: message.role))
-                        .foregroundColor(message.role == .system ? .gray : .white)
+                        .background(message.role == .user ? Color.blue : Color.green)
+                        .foregroundColor(.white)
                         .cornerRadius(10)
                 }
             }
             if message.role == .model || message.role == .system { Spacer() }
         }
     }
-    func bubbleColor(for role: ChatRole) -> Color {
-        switch role {
-        case .user: return .blue
-        case .model: return .green
-        case .system: return .clear
-        }
-    }
 }
 
-// 🚀 核心降维修改：换用最古老、最无懈可击的原生引擎
 struct ImagePicker: UIViewControllerRepresentable {
     @Binding var image: UIImage?
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.delegate = context.coordinator
-        picker.sourceType = .photoLibrary
         return picker
     }
 
@@ -207,7 +185,8 @@ struct ImagePicker: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    // 严谨地补充了 UINavigationControllerDelegate 防止严格模式报错
+    class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
         let parent: ImagePicker
         init(_ parent: ImagePicker) { self.parent = parent }
 
@@ -217,7 +196,6 @@ struct ImagePicker: UIViewControllerRepresentable {
                 parent.image = uiImage
             }
         }
-
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             picker.dismiss(animated: true)
         }
