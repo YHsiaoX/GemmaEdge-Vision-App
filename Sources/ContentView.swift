@@ -1,6 +1,6 @@
 import SwiftUI
 import PhotosUI
-import UIKit // 新增：显式引入底层 UI 库以防报错
+import UIKit
 
 class GemmaInferenceManager: ObservableObject {
     @Published var chatHistory: [ChatMessage] = []
@@ -83,7 +83,6 @@ struct ContentView: View {
                         .padding()
                         .onChange(of: inferenceManager.chatHistory.count) { _ in
                             withAnimation {
-                                // 修复核心：安全地解包可选 ID，拒绝编译器报错
                                 if let lastId = inferenceManager.chatHistory.last?.id {
                                     proxy.scrollTo(lastId, anchor: .bottom)
                                 }
@@ -109,7 +108,7 @@ struct ContentView: View {
                         Spacer()
                     }
                     .padding()
-                    .background(Color(.systemGray6))
+                    .background(Color(uiColor: .systemGray6)) // 🚀 补丁修复点 1
                     .transition(.move(edge: .bottom))
                 }
                 
@@ -146,7 +145,7 @@ struct ContentView: View {
                     .disabled(inferenceManager.isResponding || (inputText.isEmpty && selectedUIImage == nil))
                 }
                 .padding()
-                .background(Color(.systemBackground))
+                .background(Color(uiColor: .systemBackground)) // 🚀 补丁修复点 2
             }
             .navigationTitle("Gemma Edge 1.0")
             .navigationBarItems(trailing: Button(action: {
