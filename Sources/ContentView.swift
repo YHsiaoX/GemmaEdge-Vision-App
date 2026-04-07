@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UIKit // 新增：显式引入底层 UI 库以防报错
 
 class GemmaInferenceManager: ObservableObject {
     @Published var chatHistory: [ChatMessage] = []
@@ -66,7 +67,6 @@ struct ChatMessage: Identifiable {
 struct ContentView: View {
     @StateObject private var inferenceManager = GemmaInferenceManager()
     @State private var inputText: String = ""
-    @State private var selectedItem: PhotosPickerItem? = nil
     @State private var selectedUIImage: UIImage? = nil
     @State private var showingImagePicker = false
     
@@ -83,7 +83,10 @@ struct ContentView: View {
                         .padding()
                         .onChange(of: inferenceManager.chatHistory.count) { _ in
                             withAnimation {
-                                proxy.scrollTo(inferenceManager.chatHistory.last?.id, anchor: .bottom)
+                                // 修复核心：安全地解包可选 ID，拒绝编译器报错
+                                if let lastId = inferenceManager.chatHistory.last?.id {
+                                    proxy.scrollTo(lastId, anchor: .bottom)
+                                }
                             }
                         }
                     }
@@ -99,7 +102,6 @@ struct ContentView: View {
                             .clipped()
                         Button(action: {
                             selectedUIImage = nil
-                            selectedItem = nil
                         }) {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundColor(.gray)
