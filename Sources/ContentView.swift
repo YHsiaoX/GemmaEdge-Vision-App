@@ -1,5 +1,4 @@
 import SwiftUI
-import PhotosUI
 import UIKit
 
 class GemmaInferenceManager: ObservableObject {
@@ -108,7 +107,7 @@ struct ContentView: View {
                         Spacer()
                     }
                     .padding()
-                    .background(Color(uiColor: .systemGray6)) // 🚀 补丁修复点 1
+                    .background(Color.gray.opacity(0.15))
                     .transition(.move(edge: .bottom))
                 }
                 
@@ -145,7 +144,6 @@ struct ContentView: View {
                     .disabled(inferenceManager.isResponding || (inputText.isEmpty && selectedUIImage == nil))
                 }
                 .padding()
-                .background(Color(uiColor: .systemBackground)) // 🚀 补丁修复点 2
             }
             .navigationTitle("Gemma Edge 1.0")
             .navigationBarItems(trailing: Button(action: {
@@ -194,27 +192,34 @@ struct MessageBubble: View {
     }
 }
 
+// 🚀 核心降维修改：换用最古老、最无懈可击的原生引擎
 struct ImagePicker: UIViewControllerRepresentable {
     @Binding var image: UIImage?
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        var config = PHPickerConfiguration()
-        config.filter = .images
-        config.selectionLimit = 1
-        let picker = PHPickerViewController(configuration: config)
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
         picker.delegate = context.coordinator
+        picker.sourceType = .photoLibrary
         return picker
     }
-    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-    class Coordinator: NSObject, PHPickerViewControllerDelegate {
+
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let parent: ImagePicker
         init(_ parent: ImagePicker) { self.parent = parent }
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
             picker.dismiss(animated: true)
-            guard let provider = results.first?.itemProvider, provider.canLoadObject(ofClass: UIImage.self) else { return }
-            provider.loadObject(ofClass: UIImage.self) { image, _ in
-                DispatchQueue.main.async { self.parent.image = image as? UIImage }
+            if let uiImage = info[.originalImage] as? UIImage {
+                parent.image = uiImage
             }
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true)
         }
     }
 }
