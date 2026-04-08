@@ -1,60 +1,55 @@
 name: Build Shell iOS App (Vision)
-
-on:
-  push:
-    branches: [ "main", "master" ]
+on: [push]
 
 jobs:
   build:
-    name: Build IPA on Cloud Mac
     runs-on: macos-latest
-
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-    - name: Set Default Xcode Version
-      run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+      - name: Set Default Xcode Version
+        run: sudo xcode-select -s /Applications/Xcode_15.2.app
 
-    # 注意：这里删除了之前下载 3GB 模型的步骤！
+      - name: Install Xcodegen & Generate Project
+        run: |
+          brew install xcodegen
+          xcodegen generate
 
-    - name: Install Xcodegen & Generate Project
-      run: |
-        brew install xcodegen
-        xcodegen generate
+      - name: Install Google MediaPipe
+        run: pod install
 
-    - name: Install Google MediaPipe
-      run: pod install
+      - name: Build the App (Unsigned)
+        run: |
+          xcodebuild -workspace Synapse.xcworkspace \
+                     -scheme Synapse \
+                     -configuration Release \
+                     -sdk iphoneos \
+                     CODE_SIGNING_ALLOWED=NO \
+                     CODE_SIGNING_REQUIRED=NO \
+                     clean build
 
-    - name: Build the App (Unsigned)
-      run: |
-        xcodebuild clean build \
-          -workspace GemmaEdge.xcworkspace \
-          -scheme GemmaEdge \
-          -configuration Release \
-          -sdk iphoneos \
-          CODE_SIGN_IDENTITY="" \
-          CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGNING_ALLOWED=NO \
-          CONFIGURATION_BUILD_DIR="$(pwd)/build"
+      - name: Package into .ipa
+        run: |
+          mkdir -p Payload
+          mv build/Release-iphoneos/Synapse.app Payload/
+          zip -r Synapse.ipa Payload
 
-    - name: Package into .ipa
-      run: |
-        mkdir -p Payload
-        mv build/GemmaEdge.app Payload/
-        zip -r GemmaEdge.ipa Payload
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Synapse-IPA
+          path: Synapse.ipa
 
-    - name: Upload IPA Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: GemmaEdge-Vision-App
-        path: GemmaEdge.ipa
-
-    - name: 🚀 发布到 Releases (满速下载通道)
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: "v1.0.${{ github.run_number }}"
-        name: "Obsidian 极速安装版 (内置下载)"
-        files: "**/*.ipa"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 🚀 发布到 Releases (满速下载通道)
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
+        with:
+          files: Synapse.ipa
+          tag_name: v${{ github.run_number }}
+          name: Synapse 极速安装包 v${{ github.run_number }}
+          body: |
+            已集成端侧大模型核心。
+            - 软件名: Synapse
+            - 图标: 赛博蓝光电路
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
