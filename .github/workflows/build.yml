@@ -3,12 +3,9 @@ on: [push]
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14  # 明确使用 macOS 14 镜像
     steps:
       - uses: actions/checkout@v3
-
-      - name: Set Default Xcode Version
-        run: sudo xcode-select -s /Applications/Xcode_15.2.app
 
       - name: Install Xcodegen & Generate Project
         run: |
@@ -24,6 +21,7 @@ jobs:
                      -scheme Synapse \
                      -configuration Release \
                      -sdk iphoneos \
+                     -derivedDataPath build \
                      CODE_SIGNING_ALLOWED=NO \
                      CODE_SIGNING_REQUIRED=NO \
                      clean build
@@ -31,7 +29,8 @@ jobs:
       - name: Package into .ipa
         run: |
           mkdir -p Payload
-          mv build/Release-iphoneos/Synapse.app Payload/
+          # 自动定位生成的 .app 文件并移动到 Payload
+          find build/Build/Products/Release-iphoneos -name "*.app" -exec mv {} Payload/ \;
           zip -r Synapse.ipa Payload
 
       - name: Upload IPA Artifact
