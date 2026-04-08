@@ -13,6 +13,5 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        # 下面这两行是绝杀：强行指定桌面显示的名称和图标！
-        INFOPLIST_KEY_CFBundleDisplayName: Synapse
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleDisplayName: "Synapse"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
