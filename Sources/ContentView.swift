@@ -1,395 +1,190 @@
 import SwiftUI
-import UIKit
-import Foundation
+import PhotosUI
+import MediaPipeTasksGenAI // 这次引入真正的 AI 推理引擎！
 
-// MARK: - 1. 模型下载管理器
+// MARK: - 下载器 (负责搬运 2.4GB 燃料)
 class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @Published var progress: Double = 0.0
-    @Published var isDownloading: Bool = false
-    @Published var isReady: Bool = false
-    @Published var downloadSpeed: String = "0 MB/s"
-    
-    private var downloadTask: URLSessionDownloadTask?
-    private var lastBytesWritten: Int64 = 0
-    private var lastTime: Date = Date()
+    @Published var isDownloading = false
+    @Published var isReady = false
     
     let modelURL = URL(string: "https://huggingface.co/huggingworld/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.task?download=true")!
-    let localPath: URL
+    let localPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("gemma.task")
     
-    override init() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        self.localPath = docs.appendingPathComponent("gemma-4-E4B-it-web.task")
-        super.init()
-        checkIfModelExists()
+    override init() { super.init(); isReady = FileManager.default.fileExists(atPath: localPath.path) }
+    
+    func start() {
+        isDownloading = true
+        URLSession(configuration: .default, delegate: self, delegateQueue: .main).downloadTask(with: modelURL).resume()
     }
     
-    func checkIfModelExists() {
-        if FileManager.default.fileExists(atPath: localPath.path) {
-            self.isReady = true
-        }
+    func urlSession(_ s: URLSession, downloadTask: URLSessionDownloadTask, didWriteData: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
     }
     
-    func startDownload() {
-        self.isDownloading = true
-        self.progress = 0.0
-        let session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
-        self.downloadTask = session.downloadTask(with: modelURL)
-        self.downloadTask?.resume()
-        self.lastTime = Date()
+    func urlSession(_ s: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        try? FileManager.default.moveItem(at: location, to: localPath)
+        DispatchQueue.main.async { self.isReady = true; self.isDownloading = false }
     }
+}
+
+// MARK: - Obsidian 核心推理引擎
+class ObsidianEngine: ObservableObject {
+    private var inference: LlmInference?
+    @Published var isEngineIgnited = false
+    @Published var isThinking = false
     
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        DispatchQueue.main.async {
-            self.progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-            let now = Date()
-            let timeInterval = now.timeIntervalSince(self.lastTime)
-            if timeInterval > 0.5 {
-                let speed = Double(totalBytesWritten - self.lastBytesWritten) / timeInterval / 1024.0 / 1024.0
-                self.downloadSpeed = String(format: "%.1f MB/s", speed)
-                self.lastTime = now
-                self.lastBytesWritten = totalBytesWritten
+    // 点火：将 2.4GB 模型载入手机内存
+    func igniteEngine(modelPath: URL) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let options = LlmInference.Options(modelPath: modelPath.path)
+                let engine = try LlmInference(options: options)
+                DispatchQueue.main.async {
+                    self.inference = engine
+                    self.isEngineIgnited = true
+                    print("Obsidian 核心已点亮！")
+                }
+            } catch {
+                print("引擎点火失败: \(error)")
             }
         }
     }
     
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+    // 推理：利用本地算力生成回答
+    func chat(prompt: String) async -> String {
+        guard let engine = inference else { return "系统错误：引擎未连接。" }
+        DispatchQueue.main.async { self.isThinking = true }
+        
         do {
-            if FileManager.default.fileExists(atPath: localPath.path) {
-                try FileManager.default.removeItem(at: localPath)
-            }
-            try FileManager.default.moveItem(at: location, to: localPath)
-            DispatchQueue.main.async {
-                self.isReady = true
-                self.isDownloading = false
-            }
+            // Gemma 模型必须遵守的指令格式
+            let formattedPrompt = "<start_of_turn>user\n\(prompt)<end_of_turn>\n<start_of_turn>model\n"
+            let response = try engine.generateResponse(inputText: formattedPrompt)
+            
+            DispatchQueue.main.async { self.isThinking = false }
+            return response
         } catch {
-            print("保存模型失败")
+            DispatchQueue.main.async { self.isThinking = false }
+            return "本地推理中断: \(error.localizedDescription)"
         }
     }
 }
 
-// MARK: - 2. 初始化加载页面
-struct BootScreenView: View {
-    @ObservedObject var downloader: ModelDownloader
-    
-    var body: some View {
-        VStack(spacing: 30) {
-            Image(systemName: "cpu")
-                .font(.system(size: 80))
-                .foregroundColor(.white)
-            
-            Text("Obsidian 核心未加载")
-                .font(.title2)
-                .bold()
-                .foregroundColor(.white)
-            
-            Text("需要下载本地大模型权重文件 (2.4 GB)\n此过程仅在初次启动时进行。")
-                .multilineTextAlignment(.center)
-                .font(.footnote)
-                .foregroundColor(.gray)
-                .padding(.horizontal)
-            
-            if downloader.isDownloading {
-                VStack(spacing: 10) {
-                    ProgressView(value: downloader.progress)
-                        .progressViewStyle(LinearProgressViewStyle())
-                        .accentColor(.blue) // 修复了这里导致 Exit Code 65 的致命语法错误！
-                        .padding(.horizontal, 40)
-                    
-                    HStack {
-                        Text("\(Int(downloader.progress * 100))%")
-                        Spacer()
-                        Text(downloader.downloadSpeed)
-                    }
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 40)
-                }
-            } else {
-                Button(action: { downloader.startDownload() }) {
-                    Text("开始下载核心引擎")
-                        .bold()
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                }
-                .padding(.horizontal, 40)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.edgesIgnoringSafeArea(.all))
-    }
-}
-
-// MARK: - 3. iMessage 数据架构
-enum ChatRole { 
-    case user, model, system 
-}
-
-struct ChatMessage: Identifiable { 
+struct ChatMessage: Identifiable {
     let id = UUID()
-    let role: ChatRole
-    let content: String
-    let image: UIImage? 
+    let text: String
+    let image: UIImage?
+    let isUser: Bool
 }
 
-struct ChatSession: Identifiable { 
-    let id = UUID()
-    var title: String
-    var messages: [ChatMessage]
-    var lastModified: Date 
-}
-
-class GemmaInferenceManager: ObservableObject {
-    @Published var sessions: [ChatSession] = [
-        ChatSession(title: "新对话", messages: [], lastModified: Date())
-    ]
-    @Published var isResponding: Bool = false
-    
-    func createNewSession() { 
-        sessions.insert(ChatSession(title: "新对话", messages: [], lastModified: Date()), at: 0) 
-    }
-    
-    func deleteSession(at offsets: IndexSet) { 
-        sessions.remove(atOffsets: offsets)
-        if sessions.isEmpty { 
-            createNewSession() 
-        } 
-    }
-    
-    func sendMessage(_ text: String, with image: UIImage? = nil, to sessionId: UUID) {
-        guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-        
-        let userMsg = ChatMessage(role: .user, content: text, image: image)
-        sessions[idx].messages.append(userMsg)
-        
-        if sessions[idx].messages.count <= 2 && !text.isEmpty { 
-            sessions[idx].title = String(text.prefix(15)) + (text.count > 15 ? "..." : "") 
-        }
-        
-        isResponding = true
-        
-        DispatchQueue.global().async {
-            Thread.sleep(forTimeInterval: 1.5)
-            let response = image != nil ? "视觉模块已激活，收到图像。(等待推理)" : "这是纯净的本地离线回复。"
-            let modelMsg = ChatMessage(role: .model, content: response, image: nil)
-            
-            DispatchQueue.main.async {
-                self.sessions[idx].messages.append(modelMsg)
-                self.isResponding = false
-                let active = self.sessions.remove(at: idx)
-                self.sessions.insert(active, at: 0)
-            }
-        }
-    }
-}
-
-// MARK: - 4. 根视图
+// MARK: - 主界面
 struct ContentView: View {
-    @StateObject private var downloader = ModelDownloader()
-    @StateObject private var inferenceManager = GemmaInferenceManager()
+    @StateObject var downloader = ModelDownloader()
+    @StateObject var engine = ObsidianEngine()
+    @State var text = ""
+    @State var messages: [ChatMessage] = []
+    @State var selectedItem: PhotosPickerItem? = nil
     
     var body: some View {
-        if downloader.isReady {
-            ChatListView(manager: inferenceManager)
+        if !downloader.isReady {
+            // 下载界面
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                VStack(spacing: 30) {
+                    Text("Obsidian 核心未就绪").font(.title2).bold().foregroundColor(.cyan)
+                    if downloader.isDownloading {
+                        ProgressView(value: downloader.progress).progressViewStyle(LinearProgressViewStyle(tint: .cyan)).padding(.horizontal, 50)
+                        Text("\(Int(downloader.progress * 100))%").foregroundColor(.cyan).font(.system(size: 20, design: .monospaced))
+                    } else {
+                        Button("开始下载核心引擎 (2.4GB)") { downloader.start() }
+                            .padding().frame(maxWidth: .infinity).background(Color.cyan.opacity(0.2))
+                            .foregroundColor(.cyan).cornerRadius(10).padding(.horizontal, 40)
+                    }
+                }
+            }
+        } else if !engine.isEngineIgnited {
+            // 模型已下载，正在载入内存 (这需要几秒钟)
+            ZStack {
+                Color.black.edgesIgnoringSafeArea(.all)
+                VStack {
+                    ProgressView().colorScheme(.dark)
+                    Text("正在将大模型载入神经引擎...").foregroundColor(.cyan).padding(.top)
+                }
+            }
+            .onAppear {
+                engine.igniteEngine(modelPath: downloader.localPath)
+            }
         } else {
-            BootScreenView(downloader: downloader)
-        }
-    }
-}
-
-// MARK: - 5. 聊天列表与详情
-struct ChatListView: View {
-    @ObservedObject var manager: GemmaInferenceManager
-    
-    var body: some View {
-        NavigationView {
-            List {
-                ForEach(manager.sessions) { session in
-                    NavigationLink(destination: ChatDetailView(manager: manager, sessionId: session.id)) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(session.title)
-                                .font(.headline)
-                                .lineLimit(1)
-                            
-                            if let lastMsg = session.messages.last {
-                                Text(lastMsg.role == .user ? "你: \(lastMsg.content)" : lastMsg.content)
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray)
-                                    .lineLimit(1)
-                            } else { 
-                                Text("点击开始聊天")
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray) 
+            // 真正的聊天界面
+            NavigationView {
+                VStack {
+                    ScrollView {
+                        ScrollViewReader { proxy in
+                            VStack(spacing: 15) {
+                                ForEach(messages) { msg in
+                                    HStack {
+                                        if msg.isUser { Spacer() }
+                                        VStack(alignment: msg.isUser ? .trailing : .leading) {
+                                            if let img = msg.image {
+                                                Image(uiImage: img).resizable().scaledToFill().frame(maxWidth: 200, maxHeight: 200).clipped().cornerRadius(10)
+                                            }
+                                            if !msg.text.isEmpty {
+                                                Text(msg.text).padding().background(msg.isUser ? Color.blue : Color.gray.opacity(0.15)).foregroundColor(msg.isUser ? .white : .primary).cornerRadius(12)
+                                            }
+                                        }
+                                        if !msg.isUser { Spacer() }
+                                    }.padding(.horizontal)
+                                }
+                                if engine.isThinking {
+                                    HStack {
+                                        Text("Obsidian 正在生成...").font(.caption).foregroundColor(.gray).italic()
+                                        Spacer()
+                                    }.padding(.horizontal)
+                                }
+                            }
+                            .onChange(of: messages.count) { _ in
+                                if let last = messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                             }
                         }
-                        .padding(.vertical, 4)
                     }
-                }
-                .onDelete(perform: manager.deleteSession)
-            }
-            .listStyle(PlainListStyle())
-            .navigationTitle("信息")
-            .navigationBarItems(trailing: Button(action: { 
-                manager.createNewSession() 
-            }) { 
-                Image(systemName: "square.and.pencil").font(.title3) 
-            })
-        }
-    }
-}
-
-struct ChatDetailView: View {
-    @ObservedObject var manager: GemmaInferenceManager
-    let sessionId: UUID
-    @State private var inputText: String = ""
-    @State private var selectedImage: UIImage? = nil
-    @State private var showingPicker = false
-    
-    var currentSession: ChatSession? { 
-        manager.sessions.first(where: { $0.id == sessionId }) 
-    }
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 12) {
-                    if let messages = currentSession?.messages { 
-                        ForEach(messages) { msg in 
-                            MessageBubble(message: msg) 
-                        } 
-                    }
-                }
-                .padding()
-            }
-            
-            VStack(spacing: 0) {
-                Divider()
-                
-                if let preview = selectedImage {
-                    HStack {
-                        Image(uiImage: preview)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 60, height: 60)
-                            .cornerRadius(8)
-                            .clipped()
+                    
+                    HStack(spacing: 15) {
+                        // 选图按钮 (保留视觉占位，因为 2.4G 模型本身是纯文本模型)
+                        PhotosPicker(selection: $selectedItem, matching: .images, photoLibrary: .shared()) {
+                            Image(systemName: "photo.on.rectangle.angled").font(.title2).foregroundColor(.blue)
+                        }
+                        .onChange(of: selectedItem) { newItem in
+                            Task {
+                                if let data = try? await newItem?.loadTransferable(type: Data.self), let uiImage = UIImage(data: data) {
+                                    messages.append(ChatMessage(text: "", image: uiImage, isUser: true))
+                                    messages.append(ChatMessage(text: "视觉模块接入中... (注：当前挂载的 2.4GB 为纯语言模型 Gemma，视觉模态如需真机推理需挂载 PaliGemma 权重包)", image: nil, isUser: false))
+                                    selectedItem = nil
+                                }
+                            }
+                        }
                         
-                        Button(action: { selectedImage = nil }) { 
-                            Image(systemName: "xmark.circle.fill").foregroundColor(.gray) 
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
+                        TextField("输入消息...", text: $text).padding(10).background(Color.gray.opacity(0.1)).cornerRadius(20)
+                        
+                        Button(action: {
+                            if !text.isEmpty {
+                                let userText = text
+                                messages.append(ChatMessage(text: userText, image: nil, isUser: true))
+                                text = ""
+                                
+                                // 呼叫真实的端侧大模型！
+                                Task {
+                                    let response = await engine.chat(prompt: userText)
+                                    messages.append(ChatMessage(text: response, image: nil, isUser: false))
+                                }
+                            }
+                        }) {
+                            Image(systemName: "arrow.up.circle.fill").font(.title).foregroundColor(!text.isEmpty ? .blue : .gray)
+                        }.disabled(text.isEmpty || engine.isThinking)
+                    }.padding()
                 }
-                
-                HStack(alignment: .bottom, spacing: 12) {
-                    Button(action: { showingPicker = true }) { 
-                        Image(systemName: "plus")
-                            .font(.system(size: 20))
-                            .foregroundColor(.gray)
-                            .frame(width: 32, height: 32)
-                            .background(Color.gray.opacity(0.2))
-                            .clipShape(Circle()) 
-                    }
-                    .padding(.bottom, 6)
-                    
-                    TextField("iMessage", text: $inputText)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(20)
-                        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.gray.opacity(0.2), lineWidth: 1))
-                    
-                    if !inputText.isEmpty || selectedImage != nil {
-                        Button(action: { 
-                            manager.sendMessage(inputText, with: selectedImage, to: sessionId)
-                            inputText = ""
-                            selectedImage = nil 
-                        }) { 
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(.blue) 
-                        }
-                        .padding(.bottom, 6)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
+                .navigationTitle("Obsidian AI (端侧)")
+                .navigationBarTitleDisplayMode(.inline)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingPicker) { 
-            ImagePicker(image: $selectedImage) 
-        }
-    }
-}
-
-// MARK: - 6. 纯粹圆角气泡
-struct MessageBubble: View {
-    let message: ChatMessage
-    var isUser: Bool { message.role == .user }
-    
-    var body: some View {
-        HStack {
-            if isUser { Spacer() }
-            
-            VStack(alignment: isUser ? .trailing : .leading, spacing: 5) {
-                if let img = message.image { 
-                    Image(uiImage: img)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 220)
-                        .cornerRadius(16) 
-                }
-                
-                if !message.content.isEmpty {
-                    Text(message.content)
-                        .font(.body)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(isUser ? Color.blue : Color.gray.opacity(0.2))
-                        .foregroundColor(isUser ? .white : .primary)
-                        .cornerRadius(18)
-                }
-            }
-            
-            if !isUser { Spacer() }
-        }
-    }
-}
-
-// MARK: - 7. 图片选择器
-struct ImagePicker: UIViewControllerRepresentable {
-    @Binding var image: UIImage?
-    
-    func makeUIViewController(context: Context) -> UIImagePickerController { 
-        let picker = UIImagePickerController()
-        picker.delegate = context.coordinator
-        return picker 
-    }
-    
-    func updateUIViewController(_ ui: UIImagePickerController, context: Context) {}
-    
-    func makeCoordinator() -> Coordinator { 
-        Coordinator(self) 
-    }
-    
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate { 
-        let parent: ImagePicker
-        
-        init(_ parent: ImagePicker) { 
-            self.parent = parent 
-        }
-        
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) { 
-            if let uiImage = info[.originalImage] as? UIImage {
-                parent.image = uiImage
-            }
-            picker.dismiss(animated: true) 
-        } 
     }
 }
