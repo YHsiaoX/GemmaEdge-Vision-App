@@ -25,28 +25,30 @@ class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
     
     func checkIfModelExists() {
         if FileManager.default.fileExists(atPath: localPath.path) {
-            isReady = true
+            self.isReady = true
         }
     }
     
     func startDownload() {
-        isDownloading = true
-        progress = 0.0
+        self.isDownloading = true
+        self.progress = 0.0
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
-        downloadTask = session.downloadTask(with: modelURL)
-        downloadTask?.resume()
-        lastTime = Date()
+        self.downloadTask = session.downloadTask(with: modelURL)
+        self.downloadTask?.resume()
+        self.lastTime = Date()
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-        let now = Date()
-        let timeInterval = now.timeIntervalSince(lastTime)
-        if timeInterval > 0.5 {
-            let speed = Double(totalBytesWritten - lastBytesWritten) / timeInterval / 1024.0 / 1024.0
-            downloadSpeed = String(format: "%.1f MB/s", speed)
-            lastTime = now
-            lastBytesWritten = totalBytesWritten
+        DispatchQueue.main.async {
+            self.progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+            let now = Date()
+            let timeInterval = now.timeIntervalSince(self.lastTime)
+            if timeInterval > 0.5 {
+                let speed = Double(totalBytesWritten - self.lastBytesWritten) / timeInterval / 1024.0 / 1024.0
+                self.downloadSpeed = String(format: "%.1f MB/s", speed)
+                self.lastTime = now
+                self.lastBytesWritten = totalBytesWritten
+            }
         }
     }
     
@@ -56,15 +58,17 @@ class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
                 try FileManager.default.removeItem(at: localPath)
             }
             try FileManager.default.moveItem(at: location, to: localPath)
-            isReady = true
-            isDownloading = false
+            DispatchQueue.main.async {
+                self.isReady = true
+                self.isDownloading = false
+            }
         } catch {
-            print("保存模型失败: \(error)")
+            print("保存模型失败")
         }
     }
 }
 
-// MARK: - 2. 初始化加载页面 (极客风)
+// MARK: - 2. 初始化加载页面
 struct BootScreenView: View {
     @ObservedObject var downloader: ModelDownloader
     
@@ -73,7 +77,6 @@ struct BootScreenView: View {
             Image(systemName: "cpu")
                 .font(.system(size: 80))
                 .foregroundColor(.white)
-                .shadow(color: .blue, radius: 10, x: 0, y: 0)
             
             Text("Obsidian 核心未加载")
                 .font(.title2)
@@ -89,7 +92,8 @@ struct BootScreenView: View {
             if downloader.isDownloading {
                 VStack(spacing: 10) {
                     ProgressView(value: downloader.progress)
-                        .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                        .progressViewStyle(LinearProgressViewStyle())
+                        .accentColor(.blue) // 修复了这里导致 Exit Code 65 的致命语法错误！
                         .padding(.horizontal, 40)
                     
                     HStack {
@@ -139,7 +143,9 @@ struct ChatSession: Identifiable {
 }
 
 class GemmaInferenceManager: ObservableObject {
-    @Published var sessions: [ChatSession] = [ChatSession(title: "新对话", messages: [], lastModified: Date())]
+    @Published var sessions: [ChatSession] = [
+        ChatSession(title: "新对话", messages: [], lastModified: Date())
+    ]
     @Published var isResponding: Bool = false
     
     func createNewSession() { 
@@ -155,7 +161,9 @@ class GemmaInferenceManager: ObservableObject {
     
     func sendMessage(_ text: String, with image: UIImage? = nil, to sessionId: UUID) {
         guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-        sessions[idx].messages.append(ChatMessage(role: .user, content: text, image: image))
+        
+        let userMsg = ChatMessage(role: .user, content: text, image: image)
+        sessions[idx].messages.append(userMsg)
         
         if sessions[idx].messages.count <= 2 && !text.isEmpty { 
             sessions[idx].title = String(text.prefix(15)) + (text.count > 15 ? "..." : "") 
@@ -165,9 +173,11 @@ class GemmaInferenceManager: ObservableObject {
         
         DispatchQueue.global().async {
             Thread.sleep(forTimeInterval: 1.5)
-            let response = image != nil ? "视觉模块已激活，收到图像。(等待推理)" : "这是圆角气泡风格的离线回复。"
+            let response = image != nil ? "视觉模块已激活，收到图像。(等待推理)" : "这是纯净的本地离线回复。"
+            let modelMsg = ChatMessage(role: .model, content: response, image: nil)
+            
             DispatchQueue.main.async {
-                self.sessions[idx].messages.append(ChatMessage(role: .model, content: response))
+                self.sessions[idx].messages.append(modelMsg)
                 self.isResponding = false
                 let active = self.sessions.remove(at: idx)
                 self.sessions.insert(active, at: 0)
@@ -176,7 +186,7 @@ class GemmaInferenceManager: ObservableObject {
     }
 }
 
-// MARK: - 4. 根视图 (路由守卫)
+// MARK: - 4. 根视图
 struct ContentView: View {
     @StateObject private var downloader = ModelDownloader()
     @StateObject private var inferenceManager = GemmaInferenceManager()
@@ -282,7 +292,7 @@ struct ChatDetailView: View {
                             .font(.system(size: 20))
                             .foregroundColor(.gray)
                             .frame(width: 32, height: 32)
-                            .background(Color.gray.opacity(0.2)) // 绝对兼容的颜色
+                            .background(Color.gray.opacity(0.2))
                             .clipShape(Circle()) 
                     }
                     .padding(.bottom, 6)
@@ -290,7 +300,7 @@ struct ChatDetailView: View {
                     TextField("iMessage", text: $inputText)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Color.gray.opacity(0.1)) // 绝对兼容的颜色
+                        .background(Color.gray.opacity(0.1))
                         .cornerRadius(20)
                         .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.gray.opacity(0.2), lineWidth: 1))
                     
@@ -309,7 +319,6 @@ struct ChatDetailView: View {
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
-                .background(Color(UIColor.systemBackground))
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -342,7 +351,7 @@ struct MessageBubble: View {
                         .font(.body)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(isUser ? Color.blue : Color.gray.opacity(0.2)) // 绝对兼容的颜色
+                        .background(isUser ? Color.blue : Color.gray.opacity(0.2))
                         .foregroundColor(isUser ? .white : .primary)
                         .cornerRadius(18)
                 }
@@ -358,9 +367,9 @@ struct ImagePicker: UIViewControllerRepresentable {
     @Binding var image: UIImage?
     
     func makeUIViewController(context: Context) -> UIImagePickerController { 
-        let p = UIImagePickerController()
-        p.delegate = context.coordinator
-        return p 
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        return picker 
     }
     
     func updateUIViewController(_ ui: UIImagePickerController, context: Context) {}
@@ -372,13 +381,15 @@ struct ImagePicker: UIViewControllerRepresentable {
     class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate { 
         let parent: ImagePicker
         
-        init(_ p: ImagePicker) { 
-            parent = p 
+        init(_ parent: ImagePicker) { 
+            self.parent = parent 
         }
         
-        func imagePickerController(_ p: UIImagePickerController, didFinishPickingMediaWithInfo i: [UIImagePickerController.InfoKey : Any]) { 
-            parent.image = i[.originalImage] as? UIImage
-            p.dismiss(animated: true) 
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) { 
+            if let uiImage = info[.originalImage] as? UIImage {
+                parent.image = uiImage
+            }
+            picker.dismiss(animated: true) 
         } 
     }
 }
