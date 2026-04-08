@@ -5,12 +5,12 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - name: Install Xcodegen
+      - name: Install Tools
         run: brew install xcodegen
-      - name: Generate Project
-        run: xcodegen generate
-      - name: Install Pods
-        run: pod install
+      - name: Generate and Pods
+        run: |
+          xcodegen generate
+          pod install
       - name: Build App
         run: |
           xcodebuild -workspace Synapse.xcworkspace \
@@ -22,12 +22,12 @@ jobs:
                      CODE_SIGNING_ALLOWED=NO \
                      CODE_SIGNING_REQUIRED=NO \
                      CODE_SIGN_IDENTITY="" \
-                     AD_HOC_CODE_SIGNING_ALLOWED=YES \
                      clean build
-      - name: Package IPA
+      - name: Create IPA
         run: |
           mkdir -p Payload
-          cp -R build/Build/Products/Release-iphoneos/Synapse.app Payload/
+          # 暴力搜索 .app 并打包，防止路径差异
+          find build -name "Synapse.app" -type d -exec cp -R {} Payload/ \;
           zip -r Synapse.ipa Payload
       - name: Upload
         uses: actions/upload-artifact@v4
