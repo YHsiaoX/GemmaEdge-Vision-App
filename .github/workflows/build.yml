@@ -11,6 +11,12 @@ jobs:
           xcodegen generate
           pod repo update
           pod install
+          
+      # --- 新增的诊断探针步骤 ---
+      - name: Debug Schemes
+        run: xcodebuild -workspace Synapse.xcworkspace -list
+      # ------------------------
+
       - name: xcodebuild
         run: |
           xcodebuild -workspace Synapse.xcworkspace \
