@@ -3,7 +3,7 @@ on: [push]
 
 jobs:
   build:
-    runs-on: macos-14  # 明确使用 macOS 14 镜像
+    runs-on: macos-15  # 升级到最新的 macOS 15 镜像（自带 Xcode 16）
     steps:
       - uses: actions/checkout@v3
 
@@ -17,6 +17,7 @@ jobs:
 
       - name: Build the App (Unsigned)
         run: |
+          # 使用 -list 查看可用 scheme 以防万一，并强制使用新的工作空间
           xcodebuild -workspace Synapse.xcworkspace \
                      -scheme Synapse \
                      -configuration Release \
@@ -29,8 +30,8 @@ jobs:
       - name: Package into .ipa
         run: |
           mkdir -p Payload
-          # 自动定位生成的 .app 文件并移动到 Payload
-          find build/Build/Products/Release-iphoneos -name "*.app" -exec mv {} Payload/ \;
+          # 使用更精准的路径抓取 .app 文件
+          cp -R build/Build/Products/Release-iphoneos/Synapse.app Payload/
           zip -r Synapse.ipa Payload
 
       - name: Upload IPA Artifact
@@ -39,7 +40,7 @@ jobs:
           name: Synapse-IPA
           path: Synapse.ipa
 
-      - name: 🚀 发布到 Releases (满速下载通道)
+      - name: 🚀 发布到 Releases
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
         with:
@@ -47,8 +48,6 @@ jobs:
           tag_name: v${{ github.run_number }}
           name: Synapse 极速安装包 v${{ github.run_number }}
           body: |
-            已集成端侧大模型核心。
-            - 软件名: Synapse
-            - 图标: 赛博蓝光电路
+            已集成端侧大模型核心 (Synapse Engine)。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
