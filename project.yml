@@ -7,7 +7,7 @@ targets:
     platform: iOS
     deploymentTarget: "16.0"
     sources:
-      - Sources
+      - Source
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
