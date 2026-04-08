@@ -1,6 +1,6 @@
 import SwiftUI
 import PhotosUI
-import MediaPipeTasksGenAI // 这次引入真正的 AI 推理引擎！
+import MediaPipeTasksGenAI
 
 // MARK: - 下载器 (负责搬运 2.4GB 燃料)
 class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
@@ -28,8 +28,8 @@ class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
 }
 
-// MARK: - Obsidian 核心推理引擎
-class ObsidianEngine: ObservableObject {
+// MARK: - Synapse 核心推理引擎
+class SynapseEngine: ObservableObject {
     private var inference: LlmInference?
     @Published var isEngineIgnited = false
     @Published var isThinking = false
@@ -43,7 +43,7 @@ class ObsidianEngine: ObservableObject {
                 DispatchQueue.main.async {
                     self.inference = engine
                     self.isEngineIgnited = true
-                    print("Obsidian 核心已点亮！")
+                    print("Synapse 核心已点亮！")
                 }
             } catch {
                 print("引擎点火失败: \(error)")
@@ -80,7 +80,7 @@ struct ChatMessage: Identifiable {
 // MARK: - 主界面
 struct ContentView: View {
     @StateObject var downloader = ModelDownloader()
-    @StateObject var engine = ObsidianEngine()
+    @StateObject var engine = SynapseEngine()
     @State var text = ""
     @State var messages: [ChatMessage] = []
     @State var selectedItem: PhotosPickerItem? = nil
@@ -91,7 +91,7 @@ struct ContentView: View {
             ZStack {
                 Color.black.edgesIgnoringSafeArea(.all)
                 VStack(spacing: 30) {
-                    Text("Obsidian 核心未就绪").font(.title2).bold().foregroundColor(.cyan)
+                    Text("Synapse 核心未就绪").font(.title2).bold().foregroundColor(.cyan)
                     if downloader.isDownloading {
                         ProgressView(value: downloader.progress).progressViewStyle(LinearProgressViewStyle(tint: .cyan)).padding(.horizontal, 50)
                         Text("\(Int(downloader.progress * 100))%").foregroundColor(.cyan).font(.system(size: 20, design: .monospaced))
@@ -103,7 +103,7 @@ struct ContentView: View {
                 }
             }
         } else if !engine.isEngineIgnited {
-            // 模型已下载，正在载入内存 (这需要几秒钟)
+            // 模型已下载，正在载入内存
             ZStack {
                 Color.black.edgesIgnoringSafeArea(.all)
                 VStack {
@@ -137,7 +137,7 @@ struct ContentView: View {
                                 }
                                 if engine.isThinking {
                                     HStack {
-                                        Text("Obsidian 正在生成...").font(.caption).foregroundColor(.gray).italic()
+                                        Text("Synapse 正在生成...").font(.caption).foregroundColor(.gray).italic()
                                         Spacer()
                                     }.padding(.horizontal)
                                 }
@@ -149,7 +149,6 @@ struct ContentView: View {
                     }
                     
                     HStack(spacing: 15) {
-                        // 选图按钮 (保留视觉占位，因为 2.4G 模型本身是纯文本模型)
                         PhotosPicker(selection: $selectedItem, matching: .images, photoLibrary: .shared()) {
                             Image(systemName: "photo.on.rectangle.angled").font(.title2).foregroundColor(.blue)
                         }
@@ -171,7 +170,6 @@ struct ContentView: View {
                                 messages.append(ChatMessage(text: userText, image: nil, isUser: true))
                                 text = ""
                                 
-                                // 呼叫真实的端侧大模型！
                                 Task {
                                     let response = await engine.chat(prompt: userText)
                                     messages.append(ChatMessage(text: response, image: nil, isUser: false))
@@ -182,7 +180,7 @@ struct ContentView: View {
                         }.disabled(text.isEmpty || engine.isThinking)
                     }.padding()
                 }
-                .navigationTitle("Obsidian AI (端侧)")
+                .navigationTitle("Synapse AI (端侧)")
                 .navigationBarTitleDisplayMode(.inline)
             }
         }
