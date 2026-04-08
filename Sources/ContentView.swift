@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// MARK: - 1. 模型下载管理器 (核心黑科技)
+// MARK: - 1. 模型下载管理器
 class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @Published var progress: Double = 0.0
     @Published var isDownloading: Bool = false
@@ -136,7 +136,7 @@ class GemmaInferenceManager: ObservableObject {
         
         DispatchQueue.global().async {
             Thread.sleep(forTimeInterval: 1.5)
-            let response = image != nil ? "视觉模块已激活，收到图像。(等待推理)" : "这是 iMessage 风格的本地离线回复。"
+            let response = image != nil ? "视觉模块已激活，收到图像。(等待推理)" : "这是圆角气泡风格的离线回复。"
             DispatchQueue.main.async {
                 self.sessions[idx].messages.append(ChatMessage(role: .model, content: response))
                 self.isResponding = false
@@ -153,14 +153,14 @@ struct ContentView: View {
     
     var body: some View {
         if downloader.isReady {
-            ChatListView(manager: inferenceManager) // 进入 iMessage
+            ChatListView(manager: inferenceManager)
         } else {
-            BootScreenView(downloader: downloader) // 显示下载页
+            BootScreenView(downloader: downloader)
         }
     }
 }
 
-// MARK: - 5. iMessage 界面
+// MARK: - 5. 聊天列表与详情
 struct ChatListView: View {
     @ObservedObject var manager: GemmaInferenceManager
     var body: some View {
@@ -220,16 +220,7 @@ struct ChatDetailView: View {
     }
 }
 
-// MARK: - 6. 兼容版气泡形状 (修复 Exit code 65 的关键)
-struct ChatBubbleShape: Shape {
-    var isUser: Bool
-    func path(in rect: CGRect) -> Path {
-        let corners: UIRectCorner = [.topLeft, .topRight, isUser ? .bottomLeft : .bottomRight]
-        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: 18, height: 18))
-        return Path(path.cgPath)
-    }
-}
-
+// MARK: - 6. 纯粹圆角气泡 (彻底告别 Exit Code 65)
 struct MessageBubble: View {
     let message: ChatMessage
     var isUser: Bool { message.role == .user }
@@ -239,8 +230,13 @@ struct MessageBubble: View {
             VStack(alignment: isUser ? .trailing : .leading, spacing: 5) {
                 if let img = message.image { Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: 220).cornerRadius(16) }
                 if !message.content.isEmpty {
-                    Text(message.content).font(.body).padding(.horizontal, 16).padding(.vertical, 10).background(isUser ? Color.blue : Color(.systemGray5)).foregroundColor(isUser ? .white : .primary)
-                        .clipShape(ChatBubbleShape(isUser: isUser)) // 使用了兼容版的自定义形状
+                    Text(message.content)
+                        .font(.body)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(isUser ? Color.blue : Color(.systemGray5))
+                        .foregroundColor(isUser ? .white : .primary)
+                        .cornerRadius(18) // 这里使用了最基础也是最稳的圆角属性
                 }
             }
             if !isUser { Spacer() }
