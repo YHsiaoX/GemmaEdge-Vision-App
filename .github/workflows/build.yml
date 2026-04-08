@@ -3,7 +3,7 @@ on: [push]
 
 jobs:
   build:
-    runs-on: macos-15  # 升级到最新的 macOS 15 镜像（自带 Xcode 16）
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v3
 
@@ -17,11 +17,12 @@ jobs:
 
       - name: Build the App (Unsigned)
         run: |
-          # 使用 -list 查看可用 scheme 以防万一，并强制使用新的工作空间
+          # 关键点：添加了 -destination 参数，防止图标编译时的瘦身报错
           xcodebuild -workspace Synapse.xcworkspace \
                      -scheme Synapse \
                      -configuration Release \
                      -sdk iphoneos \
+                     -destination 'generic/platform=iOS' \
                      -derivedDataPath build \
                      CODE_SIGNING_ALLOWED=NO \
                      CODE_SIGNING_REQUIRED=NO \
@@ -30,7 +31,6 @@ jobs:
       - name: Package into .ipa
         run: |
           mkdir -p Payload
-          # 使用更精准的路径抓取 .app 文件
           cp -R build/Build/Products/Release-iphoneos/Synapse.app Payload/
           zip -r Synapse.ipa Payload
 
@@ -49,5 +49,6 @@ jobs:
           name: Synapse 极速安装包 v${{ github.run_number }}
           body: |
             已集成端侧大模型核心 (Synapse Engine)。
+            - 修正了图标编译瘦身失败的问题。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
