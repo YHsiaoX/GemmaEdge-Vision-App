@@ -13,6 +13,7 @@ targets:
       CODE_SIGNING_REQUIRED: NO
 schemes:
   Synapse:
+    shared: true  # 核心修复：强制云端暴露此 Scheme
     build:
       targets:
-        Synapse: [all]
+        Synapse: all
