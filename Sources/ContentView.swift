@@ -37,11 +37,8 @@ class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
         lastTime = Date()
     }
     
-    // URLSessionDelegate: 进度更新
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-        
-        // 计算网速
         let now = Date()
         let timeInterval = now.timeIntervalSince(lastTime)
         if timeInterval > 0.5 {
@@ -52,7 +49,6 @@ class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
     }
     
-    // URLSessionDelegate: 下载完成保存文件
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         do {
             if FileManager.default.fileExists(atPath: localPath.path) {
@@ -224,6 +220,16 @@ struct ChatDetailView: View {
     }
 }
 
+// MARK: - 6. 兼容版气泡形状 (修复 Exit code 65 的关键)
+struct ChatBubbleShape: Shape {
+    var isUser: Bool
+    func path(in rect: CGRect) -> Path {
+        let corners: UIRectCorner = [.topLeft, .topRight, isUser ? .bottomLeft : .bottomRight]
+        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: 18, height: 18))
+        return Path(path.cgPath)
+    }
+}
+
 struct MessageBubble: View {
     let message: ChatMessage
     var isUser: Bool { message.role == .user }
@@ -234,7 +240,7 @@ struct MessageBubble: View {
                 if let img = message.image { Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: 220).cornerRadius(16) }
                 if !message.content.isEmpty {
                     Text(message.content).font(.body).padding(.horizontal, 16).padding(.vertical, 10).background(isUser ? Color.blue : Color(.systemGray5)).foregroundColor(isUser ? .white : .primary)
-                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: isUser ? 18 : 4, bottomTrailingRadius: isUser ? 4 : 18, topTrailingRadius: 18))
+                        .clipShape(ChatBubbleShape(isUser: isUser)) // 使用了兼容版的自定义形状
                 }
             }
             if !isUser { Spacer() }
@@ -242,6 +248,7 @@ struct MessageBubble: View {
     }
 }
 
+// MARK: - 7. 图片选择器
 struct ImagePicker: UIViewControllerRepresentable {
     @Binding var image: UIImage?; func makeUIViewController(context: Context) -> UIImagePickerController { let p = UIImagePickerController(); p.delegate = context.coordinator; return p }
     func updateUIViewController(_ ui: UIImagePickerController, context: Context) {}; func makeCoordinator() -> Coordinator { Coordinator(self) }
