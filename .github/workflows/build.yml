@@ -1,17 +1,17 @@
-name: Build Synapse
+name: Build
 on: [push]
 jobs:
   build:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - name: Install Tools
-        run: brew install xcodegen
-      - name: Generate and Pods
+      - name: Setup
         run: |
+          brew install xcodegen
           xcodegen generate
+          pod repo update
           pod install
-      - name: Build App
+      - name: xcodebuild
         run: |
           xcodebuild -workspace Synapse.xcworkspace \
                      -scheme Synapse \
@@ -21,13 +21,11 @@ jobs:
                      -derivedDataPath build \
                      CODE_SIGNING_ALLOWED=NO \
                      CODE_SIGNING_REQUIRED=NO \
-                     CODE_SIGN_IDENTITY="" \
                      clean build
-      - name: Create IPA
+      - name: Export
         run: |
-          mkdir -p Payload
-          # 暴力搜索 .app 并打包，防止路径差异
-          find build -name "Synapse.app" -type d -exec cp -R {} Payload/ \;
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Synapse.app Payload/
           zip -r Synapse.ipa Payload
       - name: Upload
         uses: actions/upload-artifact@v4
